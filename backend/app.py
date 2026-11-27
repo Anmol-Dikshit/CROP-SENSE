@@ -34,41 +34,69 @@ def health():
 
 @app.post("/predict")
 def predict():
-    body = request.get_json(silent=True)
-    if not isinstance(body, dict):
-        return jsonify({"error": "Send a JSON object in the request body."}), 400
+   if not isinstance(body, dict):
+    return jsonify({
+        "error": "Send a valid JSON object in the request body."
+    }), 400
 
-    missing = [key for key in FEATURES if key not in body or body[key] in (None, "")]
-    if missing:
-        return jsonify({"error": "Missing required fields.", "fields": missing}), 400
+missing = [
+    key for key in FEATURES
+    if key not in body or body[key] in (None, "")
+]
 
-    values = {}
-    try:
-        for key in FEATURES:
-            value = float(body[key])
-            if not (value == value and abs(value) != float("inf")):
-                raise ValueError(f"{key} must be a finite number.")
-            values[key] = value
-    except (TypeError, ValueError) as exc:
-        return jsonify({"error": str(exc)}), 400
+if missing:
+    return jsonify({
+        "error": "Missing required fields.",
+        "fields": missing
+    }), 400
 
-    try:
-        result = get_predictor().predict(values)
-    except FileNotFoundError as exc:
-        return jsonify({"error": str(exc)}), 503
-    except Exception as exc:
-        app.logger.exception("Prediction failed")
-        return jsonify({"error": "Prediction failed.", "details": str(exc)}), 500
+values = {}
 
-    record = {
-        "id": len(history) + 1,
-        "created_at": datetime.now(timezone.utc).isoformat(),
-        "inputs": values,
-        **result
-    }
-    history.insert(0, record)
-    del history[100:]
-    return jsonify(record)
+try:
+    for key in FEATURES:
+        value = float(body[key])
+
+        if not (value == value and abs(value) != float("inf")):
+            return jsonify({
+                "error": f"{key} must be a finite number."
+            }), 400
+
+        if value < 0:
+            return jsonify({
+                "error": f"{key} cannot be negative. Please enter a valid agricultural value."
+            }), 400
+
+        values[key] = value
+
+except (TypeError, ValueError):
+    return jsonify({
+        "error": "All input fields must contain valid numerical values."
+    }), 400
+
+try:
+    result = get_predictor().predict(values)
+
+except FileNotFoundError as exc:
+    return jsonify({"error": str(exc)}), 503
+
+except Exception as exc:
+    app.logger.exception("Prediction failed")
+    return jsonify({
+        "error": "Prediction failed.",
+        "details": str(exc)
+    }), 500
+
+record = {
+    "id": len(history) + 1,
+    "created_at": datetime.now(timezone.utc).isoformat(),
+    "inputs": values,
+    **result
+}
+
+history.insert(0, record)
+del history[100:]
+
+return jsonify(record)
 
 @app.get("/history")
 def get_history():
